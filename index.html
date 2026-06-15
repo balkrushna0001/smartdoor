@@ -7,101 +7,75 @@
     <script src="https://unpkg.com/mqtt/dist/mqtt.min.js"></script>
     
     <style>
-        body {
-            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
-            text-align: center;
-            background-color: #f4f4f9;
-            padding: 50px;
-            margin: 0;
-        }
-        .container {
-            background: white;
-            padding: 30px;
-            border-radius: 15px;
-            box-shadow: 0 4px 15px rgba(0,0,0,0.1);
-            display: inline-block;
-            min-width: 320px;
-            margin-top: 50px;
-        }
-        .status-box {
-            font-size: 24px;
-            font-weight: bold;
-            padding: 15px 30px;
-            border-radius: 10px;
-            margin-top: 20px;
-            color: white;
-            transition: background-color 0.5s ease;
-        }
-        /* Status Colors */
-        .open { background-color: #e74c3c; }     /* Red */
-        .closed { background-color: #2ecc71; }   /* Green */
-        .unknown { background-color: #7f8c8d; }  /* Gray */
+        body { font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif; text-align: center; background-color: #f4f4f9; padding: 20px; margin: 0; }
+        .container { background: white; padding: 30px; border-radius: 15px; box-shadow: 0 4px 15px rgba(0,0,0,0.1); display: inline-block; min-width: 320px; }
+        .status-box { font-size: 24px; font-weight: bold; padding: 15px 30px; border-radius: 10px; margin-top: 20px; color: white; }
+        .open { background-color: #e74c3c; }
+        .closed { background-color: #2ecc71; }
+        .unknown { background-color: #7f8c8d; }
+        /* History styles */
+        .history-container { margin-top: 30px; background: white; padding: 20px; border-radius: 15px; display: inline-block; min-width: 320px; text-align: left; }
+        #history-list { list-style-type: none; padding: 0; }
+        #history-list li { padding: 8px; border-bottom: 1px solid #eee; font-size: 14px; }
     </style>
 </head>
 <body>
 
     <div class="container">
         <h2>🚪 Smart Door Dashboard</h2>
-        <p>Current door status:</p>
-        <div id="door-status" class="status-box unknown">Connecting to Broker...</div>
-        <p style="font-size: 13px; color: gray; margin-top: 20px;" id="time-stamp">Last Update: None</p>
+        <div id="door-status" class="status-box unknown">Connecting...</div>
+        <p id="time-stamp">Last Update: None</p>
+    </div>
+
+    <div class="history-container">
+        <h3>📜 Event History</h3>
+        <ul id="history-list"><li>Loading history...</li></ul>
     </div>
 
     <script>
-        // HiveMQ Public Broker WebSocket Link (Secure Port 443 is required for GitHub Pages HTTPS)
         const broker = 'wss://broker.hivemq.com:8884/mqtt';
         const topic = 'door/device001/status';
-
-        console.log("Connecting to MQTT broker...");
         const client = mqtt.connect(broker);
 
-        // Triggered when successfully connected to the broker
+        // Fetch History from Google Sheets CSV
+        async function loadHistory() {
+            const csvUrl = 'https://docs.google.com/spreadsheets/d/e/2PACX-1vRs996B9-UJ4JHWsxhf5Bk5iVW1q3s0CSxGOmUkmv13XxQWRHQBQREEEAvGKhJczVDyCogFBBhqw_P3/pub?output=csv';
+            try {
+                const response = await fetch(csvUrl);
+                const data = await response.text();
+                const rows = data.split('\n').reverse(); // Newest first
+                const historyList = document.getElementById('history-list');
+                historyList.innerHTML = '';
+                
+                rows.forEach(row => {
+                    if (row.trim() !== '') {
+                        const cols = row.split(',');
+                        const li = document.createElement('li');
+                        li.innerText = `${cols[0]} | ${cols[1]}`;
+                        historyList.appendChild(li);
+                    }
+                });
+            } catch (err) { console.error("Error loading history:", err); }
+        }
+
         client.on('connect', () => {
-            console.log("Connected to MQTT Broker successfully!");
             document.getElementById('door-status').innerText = "Waiting for Device...";
-            
-            client.subscribe(topic, (err) => {
-                if (!err) {
-                    console.log("Subscribed to topic: " + topic);
-                } else {
-                    console.error("Subscription error: ", err);
-                    document.getElementById('door-status').innerText = "Subscription Error";
-                }
-            });
+            client.subscribe(topic);
+            loadHistory(); // Load history when connected
         });
 
-        // Triggered when a new message is received from ESP32
         client.on('message', (receivedTopic, message) => {
             const status = message.toString().trim();
-            console.log("New data received [" + receivedTopic + "]: " + status);
-
             const statusDiv = document.getElementById('door-status');
-            const timeStamp = document.getElementById('time-stamp');
             
-            // Generate current timestamp
-            const now = new Date();
-            timeStamp.innerText = "Last Update: " + now.toLocaleTimeString();
-
-            // Update UI based on received payload from ESP32
             if (status === "Door_Open") {
                 statusDiv.innerText = "DOOR IS OPEN";
                 statusDiv.className = "status-box open";
             } else if (status === "Door_Closed") {
                 statusDiv.innerText = "DOOR IS CLOSED";
                 statusDiv.className = "status-box closed";
-            } else {
-                // If any unexpected payload is received
-                statusDiv.innerText = "UNKNOWN DATA: " + status;
-                statusDiv.className = "status-box unknown";
             }
-        });
-
-        // Error handling for debugging
-        client.on('error', (err) => {
-            console.error("MQTT Client Error: ", err);
-            const statusDiv = document.getElementById('door-status');
-            statusDiv.innerText = "Connection Error";
-            statusDiv.className = "status-box unknown";
+            document.getElementById('time-stamp').innerText = "Last Update: " + new Date().toLocaleTimeString();
         });
     </script>
 </body>
